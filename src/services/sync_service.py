@@ -100,6 +100,26 @@ class SyncService:
         logger.info(f"Sync complete: {result}")
         return result
 
+    def sync_by_artist_name(self, artist_name: str, force: bool = False) -> dict:
+        """특정 가수 이름으로 콘서트 검색 → 저장. 키워드 테이블에 없으면 None 반환."""
+        artist = self.db.query(ArtistKeyword).filter(ArtistKeyword.name == artist_name).first()
+        if not artist:
+            return None
+
+        # 이미 동기화된 경우 처리
+        if not force and artist.id in self.get_already_synced_ids():
+            return {"artist_name": artist.name, "concerts_found": 0, "skipped": True}
+
+        # force 모드일 때 기존 결과 삭제
+        if force and artist.id in self.get_already_synced_ids():
+            self.db.query(ConcertSearchResult).filter(
+                ConcertSearchResult.artist_keyword_id == artist.id
+            ).delete()
+            self.db.commit()
+
+        count = self.sync_one(artist)
+        return {"artist_name": artist.name, "concerts_found": count, "skipped": False}
+
     def get_results(self, artist_name: str = None):
         """검색 결과 조회"""
         query = self.db.query(ConcertSearchResult)
