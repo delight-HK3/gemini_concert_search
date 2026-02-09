@@ -25,9 +25,12 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://admin:password@postgres:5432/keywords
+      EXTERNAL_DATABASE_URL: ${EXTERNAL_DATABASE_URL:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       ENABLE_SCHEDULER: "true"
       BATCH_SIZE: "10"
       SCHEDULE_INTERVAL: "3600"
+      SYNC_INTERVAL: "3600"
       PYTHONPATH: /app:/app/src
     depends_on:
       postgres:
