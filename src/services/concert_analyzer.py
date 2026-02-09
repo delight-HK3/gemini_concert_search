@@ -1,5 +1,5 @@
 """내한 콘서트 검색 AI 서비스"""
-import google.generativeai as genai
+from google import genai
 import json
 import logging
 from typing import List, Dict
@@ -14,15 +14,14 @@ class ConcertAnalyzer:
     def __init__(self):
         if not settings.GOOGLE_API_KEY:
             logger.warning("GOOGLE_API_KEY not set. Concert search disabled.")
-            self.model = None
+            self.client = None
             return
 
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(settings.AI_MODEL)
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
     def search_concerts(self, artist_name: str) -> List[Dict]:
         """가수 이름으로 내한 콘서트 정보 검색"""
-        if not self.model:
+        if not self.client:
             return []
 
         try:
@@ -44,7 +43,10 @@ class ConcertAnalyzer:
 
 JSON 배열만 출력하세요."""
 
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=settings.AI_MODEL,
+                contents=prompt,
+            )
             text = response.text.strip()
 
             # JSON 추출
