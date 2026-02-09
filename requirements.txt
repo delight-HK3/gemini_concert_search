@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
-psycopg2-binary
+pymysql
 pydantic
 google-generativeai
 schedule

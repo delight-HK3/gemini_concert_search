@@ -1,4 +1,4 @@
 """API routes"""
-from . import keywords, health, sync
+from . import health, sync
 
-__all__ = ['keywords', 'health', 'sync']
+__all__ = ['health', 'sync']
