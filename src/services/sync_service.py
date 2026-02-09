@@ -1,7 +1,7 @@
 """가수 키워드 동기화 서비스
 
-외부 DB에서 가수 키워드를 가져와 Gemini로 내한 콘서트 정보를 검색하고
-결과를 외부 DB에 저장한다.
+MariaDB에서 가수 키워드를 가져와 Gemini로 내한 콘서트 정보를 검색하고
+결과를 같은 DB에 저장한다.
 """
 import json
 import logging
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 class SyncService:
     """가수 키워드 → Gemini 검색 → 결과 저장"""
 
-    def __init__(self, external_db: Session):
-        self.db = external_db
+    def __init__(self, db: Session):
+        self.db = db
         self.analyzer = ConcertAnalyzer()
 
     def fetch_artist_keywords(self):
-        """외부 DB에서 가수 키워드 목록 조회"""
+        """DB에서 가수 키워드 목록 조회"""
         return self.db.query(ArtistKeyword).all()
 
     def get_already_synced_ids(self):
@@ -35,7 +35,6 @@ class SyncService:
         concerts = self.analyzer.search_concerts(artist.name)
 
         if not concerts:
-            # 검색 결과 없음 — 빈 레코드 하나를 남겨 중복 검색 방지
             record = ConcertSearchResult(
                 artist_keyword_id=artist.id,
                 artist_name=artist.name,
@@ -82,7 +81,7 @@ class SyncService:
         """전체 동기화. force=True면 이미 동기화된 것도 다시 검색."""
         artists = self.fetch_artist_keywords()
         if not artists:
-            logger.info("No artist keywords found in external DB")
+            logger.info("No artist keywords found in DB")
             return {"total_artists": 0, "synced": 0, "skipped": 0, "concerts_found": 0}
 
         synced_ids = set() if force else self.get_already_synced_ids()
@@ -121,7 +120,7 @@ class SyncService:
         """검색 결과 조회"""
         query = self.db.query(ConcertSearchResult)
         if artist_name:
-            query = query.filter(ConcertSearchResult.artist_name.ilike(f"%{artist_name}%"))
+            query = query.filter(ConcertSearchResult.artist_name.like(f"%{artist_name}%"))
         return query.order_by(ConcertSearchResult.synced_at.desc()).all()
 
     def get_results_by_keyword_id(self, artist_keyword_id: int):

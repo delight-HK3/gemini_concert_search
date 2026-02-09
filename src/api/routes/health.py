@@ -9,5 +9,6 @@ def health_check():
     """헬스체크"""
     return {
         "status": "healthy",
-        "ai_enabled": bool(settings.GOOGLE_API_KEY)
+        "ai_enabled": bool(settings.GOOGLE_API_KEY),
+        "db_configured": bool(settings.DATABASE_URL),
     }
