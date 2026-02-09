@@ -35,23 +35,7 @@ class SyncService:
         concerts = self.analyzer.search_concerts(artist.name)
 
         if not concerts:
-            record = ConcertSearchResult(
-                artist_keyword_id=artist.id,
-                artist_name=artist.name,
-                concert_title=None,
-                venue=None,
-                concert_date=None,
-                concert_time=None,
-                ticket_price=None,
-                booking_date=None,
-                booking_url=None,
-                source="gemini",
-                raw_response="[]",
-                synced_at=datetime.utcnow(),
-            )
-            self.db.add(record)
-            self.db.commit()
-            logger.info(f"  No concerts found for {artist.name}")
+            logger.info(f"  No concerts found for {artist.name}, skipping DB insert")
             return 0
 
         saved = 0
