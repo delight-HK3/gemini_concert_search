@@ -1,5 +1,5 @@
 """데이터베이스 모델 (MariaDB)"""
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean
 from datetime import datetime
 from core.database import Base
 
@@ -13,8 +13,26 @@ class ArtistKeyword(Base):
     name = Column(String(500), nullable=False)
 
 
+class CrawledData(Base):
+    """크롤링 원본 데이터 — 출처 추적용"""
+    __tablename__ = "crawled_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    artist_keyword_id = Column(Integer, nullable=False, index=True)
+    artist_name = Column(String(500), nullable=False)
+    source_site = Column(String(100), nullable=False)
+    title = Column(String(500))
+    venue = Column(String(500))
+    date = Column(String(200))
+    time = Column(String(200))
+    price = Column(String(500))
+    booking_url = Column(Text)
+    raw_html = Column(Text)
+    crawled_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ConcertSearchResult(Base):
-    """내한 콘서트 검색 결과 테이블 (자동 생성)"""
+    """내한 콘서트 검색 결과 — AI 분석 후 정제된 데이터"""
     __tablename__ = "concert_search_results"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -29,4 +47,7 @@ class ConcertSearchResult(Base):
     booking_url = Column(Text)
     source = Column(String(200))
     raw_response = Column(Text)
+    confidence = Column(Float, default=0.0)
+    data_sources = Column(String(500))
+    is_verified = Column(Boolean, default=False)
     synced_at = Column(DateTime, default=datetime.utcnow)

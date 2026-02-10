@@ -12,16 +12,17 @@ logger = logging.getLogger(__name__)
 # FastAPI 앱
 app = FastAPI(
     title="Singer Concert Search",
-    description="MariaDB 가수 키워드 기반 Gemini 내한 콘서트 검색 시스템",
-    version="5.0.0"
+    description="크롤링 + AI 분석 기반 내한 콘서트 검색 시스템",
+    version="6.0.0"
 )
 
 @app.on_event("startup")
 def startup_event():
     """애플리케이션 시작"""
-    logger.info("=== Starting Singer Concert Search ===")
+    logger.info("=== Starting Singer Concert Search v6.0.0 ===")
+    logger.info("Pipeline: Crawling (Interpark, Melon) → AI Analysis (Gemini) → DB")
 
-    # DB 초기화 (concert_search_results 테이블 생성)
+    # DB 초기화 (crawled_data, concert_search_results 테이블 생성)
     init_db()
 
     # 스케줄러 시작
@@ -32,7 +33,9 @@ def root():
     """루트 엔드포인트"""
     return {
         "service": "Singer Concert Search",
-        "version": "5.0.0",
+        "version": "6.0.0",
+        "pipeline": "crawling → ai_analysis → db",
+        "crawlers": ["interpark", "melon"],
         "ai_enabled": bool(settings.GOOGLE_API_KEY),
         "db_configured": bool(settings.DATABASE_URL),
         "scheduler_enabled": settings.ENABLE_SCHEDULER,

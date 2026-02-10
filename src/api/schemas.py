@@ -13,7 +13,7 @@ class SyncResponse(BaseModel):
 
 
 class ConcertSearchResultResponse(BaseModel):
-    """내한 콘서트 검색 결과 응답"""
+    """내한 콘서트 검색 결과 응답 (AI 분석 후 정제 데이터)"""
     id: int
     artist_keyword_id: int
     artist_name: str
@@ -25,7 +25,28 @@ class ConcertSearchResultResponse(BaseModel):
     booking_date: Optional[str]
     booking_url: Optional[str]
     source: Optional[str]
+    confidence: Optional[float]
+    data_sources: Optional[str]
+    is_verified: Optional[bool]
     synced_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class CrawledDataResponse(BaseModel):
+    """크롤링 원본 데이터 응답"""
+    id: int
+    artist_keyword_id: int
+    artist_name: str
+    source_site: str
+    title: Optional[str]
+    venue: Optional[str]
+    date: Optional[str]
+    time: Optional[str]
+    price: Optional[str]
+    booking_url: Optional[str]
+    crawled_at: Optional[datetime]
 
     class Config:
         from_attributes = True
