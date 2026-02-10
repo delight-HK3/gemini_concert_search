@@ -5,3 +5,8 @@ pymysql
 pydantic
 google-genai
 schedule
+httpx
+beautifulsoup4
+tenacity
+pytest
+pytest-asyncio
