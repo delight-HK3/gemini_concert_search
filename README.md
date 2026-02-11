@@ -45,6 +45,8 @@ src/
 │   ├── base.py              # 크롤러 공통 인터페이스
 │   ├── interpark.py         # 인터파크 크롤러
 │   └── melon.py             # 멜론 티켓 크롤러
+|   └── ticketlink.py        # 티켓링크 티켓 크롤러
+|   └── yes24.py             # yes24 티켓 크롤러
 └── api/
     ├── schemas.py           # Pydantic 요청/응답 모델
     └── routes/
