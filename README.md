@@ -1,7 +1,7 @@
 # Singer Concert Search
 
 한국 내한 콘서트 정보를 자동으로 수집하고 AI로 분석하는 FastAPI 마이크로서비스입니다.
-티켓 사이트(인터파크, 멜론)를 크롤링한 뒤 Google Gemini AI로 데이터를 정제·병합하여 MariaDB에 저장합니다.
+티켓 사이트(인터파크, 멜론, 티켓링크, 예스24)를 크롤링한 뒤 Google Gemini AI로 데이터를 정제·병합하여 MariaDB에 저장합니다.
 
 ## 주요 기능
 
