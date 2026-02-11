@@ -25,7 +25,6 @@ DB(artist_keyword) → 크롤링(Interpark, Melon) → 원본 저장(crawled_dat
 | Database | MariaDB (SQLAlchemy + PyMySQL) |
 | AI | Google Generative AI (Gemini 2.5 Flash) |
 | Crawling | httpx + BeautifulSoup4 |
-| Scheduling | `schedule` 라이브러리 (데몬 스레드) |
 
 ## 디렉토리 구조
 
