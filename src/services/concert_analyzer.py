@@ -50,7 +50,7 @@ class ConcertAnalyzer:
                 model=settings.AI_MODEL,
                 contents=prompt,
             )
-            return self._parse_response(response.text)
+            return self.parse_response(response.text)
 
         except Exception as e:
             logger.error(f"AI 분석 오류 '{artist_name}': {e}")
@@ -85,7 +85,7 @@ JSON 배열만 출력하세요."""
                 model=settings.AI_MODEL,
                 contents=prompt,
             )
-            return self._parse_response(response.text)
+            return self.parse_response(response.text)
 
         except Exception as e:
             logger.error(f"AI 폴백 검색 오류 '{artist_name}': {e}")
@@ -128,7 +128,7 @@ JSON 배열만 출력하세요."""
 - 원본 데이터에 없는 정보를 지어내지 마세요
 - JSON 배열만 출력하세요."""
 
-    def _parse_response(self, text: str) -> List[Dict]:
+    def parse_response(self, text: str) -> List[Dict]:
         """AI 응답에서 JSON 추출"""
         text = text.strip()
 
