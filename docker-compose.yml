@@ -7,7 +7,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: "[dbname]://[userid]:[password]@[serverIP]:3306/[Database]"
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       ENABLE_SCHEDULER: "true"
       BATCH_SIZE: "10"
