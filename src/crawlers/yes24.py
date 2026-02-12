@@ -11,7 +11,7 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://ticket.yes24.com/search/Search.aspx"
+SEARCH_URL = "https://ticket.yes24.com/search"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
@@ -48,8 +48,7 @@ class Yes24Crawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            query = f"{artist_name} 콘서트"
-            html = await self._fetch(SEARCH_URL, {"query": query})
+            html = await self._fetch(f"{SEARCH_URL}/{quote(artist_name)}", {})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[yes24] HTTP {e.response.status_code} for '{artist_name}'")

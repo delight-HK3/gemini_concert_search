@@ -44,7 +44,7 @@ class ConcertAnalyzer:
             serialized = json.dumps(
                 [d.to_dict() for d in raw_data], ensure_ascii=False, indent=2
             )
-            prompt = self._build_analysis_prompt(artist_name, serialized)
+            prompt = self.build_analysis_prompt(artist_name, serialized)
 
             response = self.client.models.generate_content(
                 model=settings.AI_MODEL,
@@ -91,7 +91,7 @@ JSON 배열만 출력하세요."""
             logger.error(f"AI 폴백 검색 오류 '{artist_name}': {e}")
             return []
 
-    def _build_analysis_prompt(self, artist_name: str, crawled_json: str) -> str:
+    def build_analysis_prompt(self, artist_name: str, crawled_json: str) -> str:
         """AI 분석 프롬프트 생성"""
         return f"""다음은 여러 티켓 사이트에서 크롤링한 "{artist_name}"의 콘서트 원본 데이터입니다:
 

@@ -11,7 +11,7 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://www.ticketlink.co.kr/search"
+SEARCH_URL = "https://www.ticketlink.co.kr/search/"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
@@ -49,7 +49,7 @@ class TicketLinkCrawler(BaseCrawler):
 
         try:
             query = f"{artist_name} 콘서트"
-            html = await self._fetch(SEARCH_URL, {"keyword": query})
+            html = await self._fetch(SEARCH_URL, {"query": query})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[ticketlink] HTTP {e.response.status_code} for '{artist_name}'")

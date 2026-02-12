@@ -11,7 +11,7 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://search.interpark.com/search"
+SEARCH_URL = "https://tickets.interpark.com/search"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
@@ -46,8 +46,8 @@ class InterparkCrawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            query = f"{artist_name} 콘서트"
-            html = await self._fetch(SEARCH_URL, {"q": query, "category": "TICKET"})
+            query = f"{artist_name}"
+            html = await self._fetch(SEARCH_URL, {"keyword": query})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[interpark] HTTP {e.response.status_code} for '{artist_name}'")
