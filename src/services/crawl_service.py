@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import List
 
-from crawlers import BaseCrawler, RawConcertData, InterparkCrawler, MelonCrawler
+from crawlers import BaseCrawler, RawConcertData, InterparkCrawler, MelonCrawler, TicketLinkCrawler, Yes24Crawler
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,8 @@ class CrawlService:
         self.crawlers: List[BaseCrawler] = [
             InterparkCrawler(),
             MelonCrawler(),
+            TicketLinkCrawler(),
+            Yes24Crawler(),
         ]
 
     async def crawl_all(self, artist_name: str) -> List[RawConcertData]:
