@@ -13,7 +13,7 @@
 ## 파이프라인
 
 ```
-DB(artist_keyword) → 크롤링(Interpark, Melon) → 원본 저장(crawled_data) → AI 분석(Gemini) → 정제 결과 저장(concert_search_results)
+DB(artist_keyword) → 크롤링(Interpark, Melon, ticketLink, yes24) → 원본 저장(crawled_data) → AI 분석(Gemini) → 정제 결과 저장(concert_search_results)
 ```
 
 ## 기술 스택
