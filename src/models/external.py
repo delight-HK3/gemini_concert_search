@@ -1,11 +1,15 @@
-"""데이터베이스 모델 (MariaDB)"""
+"""데이터베이스 모델 (MariaDB)
+
+ArtistKeyword → Source DB (키워드 읽기 전용)
+CrawledData, ConcertSearchResult → Target DB (결과 저장)
+"""
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean
 from datetime import datetime
-from core.database import Base
+from core.database import SourceBase, TargetBase
 
 
-class ArtistKeyword(Base):
-    """가수 키워드 테이블 (읽기 전용 — 이미 존재하는 테이블)"""
+class ArtistKeyword(SourceBase):
+    """가수 키워드 테이블 (Source DB — 읽기 전용, 이미 존재하는 테이블)"""
     __tablename__ = "artist_keyword"
     __table_args__ = {"extend_existing": True}
 
@@ -13,8 +17,8 @@ class ArtistKeyword(Base):
     name = Column(String(500), nullable=False)
 
 
-class CrawledData(Base):
-    """크롤링 원본 데이터 — 출처 추적용"""
+class CrawledData(TargetBase):
+    """크롤링 원본 데이터 — Target DB에 저장"""
     __tablename__ = "crawled_data"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -31,8 +35,8 @@ class CrawledData(Base):
     crawled_at = Column(DateTime, default=datetime.utcnow)
 
 
-class ConcertSearchResult(Base):
-    """내한 콘서트 검색 결과 — AI 분석 후 정제된 데이터"""
+class ConcertSearchResult(TargetBase):
+    """내한 콘서트 검색 결과 — Target DB에 저장 (AI 분석 후 정제된 데이터)"""
     __tablename__ = "concert_search_results"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

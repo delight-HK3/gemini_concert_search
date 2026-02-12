@@ -2,8 +2,19 @@
 import os
 
 class Settings:
-    # MariaDB Database (가수 키워드 소스 & 결과 저장)
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    # Source DB — 가수 키워드를 읽어오는 DB (읽기 전용)
+    SOURCE_DATABASE_URL: str = os.getenv("SOURCE_DATABASE_URL", "")
+    # Target DB — 크롤링 원본·AI 분석 결과를 저장하는 DB
+    TARGET_DATABASE_URL: str = os.getenv("TARGET_DATABASE_URL", "")
+
+    # 하위 호환: DATABASE_URL만 설정된 경우 source/target 모두 동일 DB 사용
+    @property
+    def source_db_url(self) -> str:
+        return self.SOURCE_DATABASE_URL or os.getenv("DATABASE_URL", "")
+
+    @property
+    def target_db_url(self) -> str:
+        return self.TARGET_DATABASE_URL or os.getenv("DATABASE_URL", "")
 
     # AI
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

@@ -20,7 +20,7 @@ app = FastAPI(
 def startup_event():
     """애플리케이션 시작"""
     logger.info("=== Starting Singer Concert Search v6.0.0 ===")
-    logger.info("Pipeline: Crawling (Interpark, Melon) → AI Analysis (Gemini) → DB")
+    logger.info("Pipeline: Crawling (Interpark, Melon, TicketLink, Yes24) → AI Analysis (Gemini) → Target DB")
 
     # DB 초기화 (crawled_data, concert_search_results 테이블 생성)
     init_db()
@@ -35,9 +35,10 @@ def root():
         "service": "Singer Concert Search",
         "version": "6.0.0",
         "pipeline": "crawling → ai_analysis → db",
-        "crawlers": ["interpark", "melon"],
+        "crawlers": ["interpark", "melon", "ticketlink", "yes24"],
         "ai_enabled": bool(settings.GOOGLE_API_KEY),
-        "db_configured": bool(settings.DATABASE_URL),
+        "source_db_configured": bool(settings.source_db_url),
+        "target_db_configured": bool(settings.target_db_url),
         "scheduler_enabled": settings.ENABLE_SCHEDULER,
     }
 

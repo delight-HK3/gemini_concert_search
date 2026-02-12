@@ -10,5 +10,6 @@ def health_check():
     return {
         "status": "healthy",
         "ai_enabled": bool(settings.GOOGLE_API_KEY),
-        "db_configured": bool(settings.DATABASE_URL),
+        "source_db_configured": bool(settings.source_db_url),
+        "target_db_configured": bool(settings.target_db_url),
     }
