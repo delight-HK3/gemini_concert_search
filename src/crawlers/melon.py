@@ -45,7 +45,7 @@ class MelonCrawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            html = await self._fetch(SEARCH_URL, {"q": f"{artist_name} 콘서트"})
+            html = await self._fetch(SEARCH_URL, {"q": f"{artist_name}"})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[melon] HTTP {e.response.status_code} for '{artist_name}'")
