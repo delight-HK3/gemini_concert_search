@@ -11,7 +11,7 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://ticket.yes24.com/search"
+SEARCH_URL = "https://ticket.yes24.com/search/Search.aspx"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
@@ -48,8 +48,8 @@ class Yes24Crawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            url = f"{SEARCH_URL}/{quote(artist_name)}"
-            html = await self._fetch(url, {})
+            query = f"{artist_name} 콘서트"
+            html = await self._fetch(SEARCH_URL, {"query": query})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[yes24] HTTP {e.response.status_code} for '{artist_name}'")
@@ -66,48 +66,78 @@ class Yes24Crawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         results: List[RawConcertData] = []
 
-        # Yes24 티켓: a[class*='TicketItem_ticketItem'] 구조
-        items = soup.select("a[class*='TicketItem_ticketItem']")
+        # Yes24 티켓 검색 결과 항목 파싱
+        items = soup.select(
+            ".sch_lst li, .search_list li, .srch_list li, "
+            ".list_item, .product_list li, #schList li"
+        )
         for item in items:
             data = self._parse_item(item, artist_name)
             if data:
                 results.append(data)
 
+        # 대체 셀렉터 — 사이트 구조 변경 대비
+        if not results:
+            items = soup.select(
+                "[class*='sch'] li, [class*='search'] li, "
+                "[class*='product'], [class*='concert'], [class*='ticket']"
+            )
+            for item in items:
+                data = self._parse_item(item, artist_name)
+                if data:
+                    results.append(data)
+
         return results
 
     def _parse_item(self, item, artist_name: str) -> RawConcertData | None:
-        """개별 검색 결과 항목 파싱 (TicketItem 요소)"""
-        # 제목: data-prd-name 속성 우선, 없으면 goodsName 요소
-        title = item.get("data-prd-name", "")
-        if not title:
-            title_el = item.select_one("[class*='TicketItem_goodsName']")
-            if title_el:
-                title = title_el.get_text(strip=True)
+        """개별 검색 결과 항목 파싱"""
+        # 제목 추출
+        title_el = item.select_one(
+            ".sch_tit a, .tit a, .title a, .prd_name a, "
+            "h3 a, h4 a, .name a, a[class*='tit'], a[class*='name']"
+        )
+        if not title_el:
+            return None
+
+        title = title_el.get_text(strip=True)
         if not title:
             return None
 
-        # 링크: data-prd-no로 상품 페이지 URL 생성
-        prd_no = item.get("data-prd-no", "")
-        href = f"https://ticket.yes24.com/Perf/{prd_no}" if prd_no else ""
+        # 링크 추출
+        href = title_el.get("href", "")
+        if href and not href.startswith("http"):
+            href = f"https://ticket.yes24.com{href}"
 
-        # 장소
+        # 장소 추출
         venue = ""
-        venue_el = item.select_one("[class*='TicketItem_placeName']")
+        venue_el = item.select_one(
+            ".venue, .place, .location, "
+            "[class*='venue'], [class*='place'], [class*='location']"
+        )
         if venue_el:
             venue = venue_el.get_text(strip=True)
 
-        # 날짜
+        # 날짜 추출
         date = ""
-        date_el = item.select_one("[class*='TicketItem_playDate']")
+        date_el = item.select_one(
+            ".date, .period, .schedule, "
+            "[class*='date'], [class*='period'], [class*='schedule']"
+        )
         if date_el:
             date = date_el.get_text(strip=True)
+
+        # 가격 추출
+        price = ""
+        price_el = item.select_one(".price, [class*='price']")
+        if price_el:
+            price = price_el.get_text(strip=True)
 
         return RawConcertData(
             title=title,
             artist_name=artist_name,
             venue=venue or None,
             date=date or None,
-            price=None,
+            price=price or None,
             booking_url=href or None,
             source_site=self.source_name,
         )

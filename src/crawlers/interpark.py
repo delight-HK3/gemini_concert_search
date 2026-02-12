@@ -46,8 +46,8 @@ class InterparkCrawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            query = f"{artist_name}"
-            html = await self._fetch(SEARCH_URL, {"keyword": query})
+            url = f"{SEARCH_URL}/{quote(artist_name)}"
+            html = await self._fetch(url, {})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[interpark] HTTP {e.response.status_code} for '{artist_name}'")
@@ -64,50 +64,39 @@ class InterparkCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         results: List[RawConcertData] = []
 
-        # 인터파크 검색 결과 항목 파싱
-        items = soup.select(".search_result_item, .prd_item, li.item")
+        # 인터파크 티켓: a[class*='TicketItem_ticketItem'] 구조
+        items = soup.select("a[class*='TicketItem_ticketItem']")
         for item in items:
             data = self._parse_item(item, artist_name)
             if data:
                 results.append(data)
 
-        # 대체 셀렉터 — 사이트 구조 변경 대비
-        if not results:
-            items = soup.select("[class*='ticket'], [class*='concert'], [class*='product']")
-            for item in items:
-                data = self._parse_item(item, artist_name)
-                if data:
-                    results.append(data)
-
         return results
 
     def _parse_item(self, item, artist_name: str) -> RawConcertData | None:
-        """개별 검색 결과 항목 파싱"""
-        # 제목 추출
-        title_el = item.select_one(
-            "a.prd_name, .title a, .prd_info a, h3 a, .name a, a[class*='title']"
-        )
-        if not title_el:
-            return None
-
-        title = title_el.get_text(strip=True)
+        """개별 검색 결과 항목 파싱 (TicketItem 요소)"""
+        # 제목: data-prd-name 속성 우선, 없으면 goodsName 요소
+        title = item.get("data-prd-name", "")
+        if not title:
+            title_el = item.select_one("[class*='TicketItem_goodsName']")
+            if title_el:
+                title = title_el.get_text(strip=True)
         if not title:
             return None
 
-        # 링크 추출
-        href = title_el.get("href", "")
-        if href and not href.startswith("http"):
-            href = f"https://tickets.interpark.com{href}"
+        # 링크: data-prd-no로 상품 페이지 URL 생성
+        prd_no = item.get("data-prd-no", "")
+        href = f"https://tickets.interpark.com/goods/{prd_no}" if prd_no else ""
 
-        # 장소 추출
+        # 장소
         venue = ""
-        venue_el = item.select_one(".venue, .place, [class*='venue'], [class*='place']")
+        venue_el = item.select_one("[class*='TicketItem_placeName']")
         if venue_el:
             venue = venue_el.get_text(strip=True)
 
-        # 날짜 추출
+        # 날짜
         date = ""
-        date_el = item.select_one(".date, .period, [class*='date'], [class*='period']")
+        date_el = item.select_one("[class*='TicketItem_playDate']")
         if date_el:
             date = date_el.get_text(strip=True)
 
