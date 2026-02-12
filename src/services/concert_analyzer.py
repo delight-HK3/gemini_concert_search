@@ -6,6 +6,8 @@
 from google import genai
 import json
 import logging
+import time
+import re
 from typing import List, Dict
 from core.config import settings
 from crawlers.base import RawConcertData
@@ -23,6 +25,28 @@ class ConcertAnalyzer:
             return
 
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+    def _generate_with_retry(self, prompt: str, max_retries: int = 3) -> str:
+        """Gemini API 호출 (429 rate limit 시 자동 재시도)"""
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=settings.AI_MODEL,
+                    contents=prompt,
+                )
+                return response.text
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str and attempt < max_retries:
+                    # retryDelay 파싱 시도, 실패 시 기본 25초
+                    wait_seconds = 25
+                    match = re.search(r'retry.*?(\d+)', error_str, re.IGNORECASE)
+                    if match:
+                        wait_seconds = int(match.group(1)) + 5
+                    logger.info(f"Rate limit 도달, {wait_seconds}초 후 재시도 ({attempt + 1}/{max_retries})")
+                    time.sleep(wait_seconds)
+                else:
+                    raise
 
     def analyze(self, artist_name: str, raw_data: List[RawConcertData]) -> List[Dict]:
         """크롤링 데이터를 AI로 분석·정제·병합
@@ -45,12 +69,8 @@ class ConcertAnalyzer:
                 [d.to_dict() for d in raw_data], ensure_ascii=False, indent=2
             )
             prompt = self._build_analysis_prompt(artist_name, serialized)
-
-            response = self.client.models.generate_content(
-                model=settings.AI_MODEL,
-                contents=prompt,
-            )
-            return self.parse_response(response.text)
+            text = self._generate_with_retry(prompt)
+            return self.parse_response(text)
 
         except Exception as e:
             logger.error(f"AI 분석 오류 '{artist_name}': {e}")
@@ -81,11 +101,8 @@ class ConcertAnalyzer:
 추측이나 가짜 정보는 절대 포함하지 마세요.
 JSON 배열만 출력하세요."""
 
-            response = self.client.models.generate_content(
-                model=settings.AI_MODEL,
-                contents=prompt,
-            )
-            return self.parse_response(response.text)
+            text = self._generate_with_retry(prompt)
+            return self.parse_response(text)
 
         except Exception as e:
             logger.error(f"AI 폴백 검색 오류 '{artist_name}': {e}")
