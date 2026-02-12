@@ -20,7 +20,7 @@ Source DB(artist_keyword)
   → 원본 저장(crawled_data) [Target DB]
   → AI 분석(Gemini)
   → 정제 결과 저장(concert_search_results) [Target DB]
-=======
+
 DB(artist_keyword) → 크롤링(Interpark, Melon, ticketLink, yes24) → 원본 저장(crawled_data) → AI 분석(Gemini) → 정제 결과 저장(concert_search_results)
 
 ```
