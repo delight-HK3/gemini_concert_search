@@ -62,29 +62,19 @@ class MelonCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         results: List[RawConcertData] = []
 
-        # 멜론티켓 검색 결과 항목 파싱
-        items = soup.select(".list_ticket li, .search_list li, .result_list li")
-        for item in items:
-            data = self._parse_item(item, artist_name)
+        # 멜론티켓 검색 결과: a.inner > span.show_title 구조
+        links = soup.select("a.inner")
+        for link in links:
+            data = self._parse_item(link, artist_name)
             if data:
                 results.append(data)
 
-        # 대체 셀렉터
-        if not results:
-            items = soup.select("[class*='concert'], [class*='ticket'], [class*='product']")
-            for item in items:
-                data = self._parse_item(item, artist_name)
-                if data:
-                    results.append(data)
-
         return results
 
-    def _parse_item(self, item, artist_name: str) -> RawConcertData | None:
-        """개별 검색 결과 항목 파싱"""
-        # 제목 추출
-        title_el = item.select_one(
-            ".tit a, .title a, a.name, h4 a, a[class*='tit']"
-        )
+    def _parse_item(self, link, artist_name: str) -> RawConcertData | None:
+        """개별 검색 결과 항목 파싱 (a.inner 요소)"""
+        # 제목 추출: span.show_title
+        title_el = link.select_one(".show_title")
         if not title_el:
             return None
 
@@ -92,35 +82,38 @@ class MelonCrawler(BaseCrawler):
         if not title:
             return None
 
-        # 링크 추출
-        href = title_el.get("href", "")
-        if href and not href.startswith("http"):
-            href = f"https://ticket.melon.com{href}"
+        # 링크 추출: ../performance/index.htm?prodId=xxx → 절대 경로 변환
+        href = link.get("href", "")
+        if href:
+            href = href.replace("../", "/")
+            if not href.startswith("http"):
+                if not href.startswith("/"):
+                    href = f"/{href}"
+                href = f"https://ticket.melon.com{href}"
 
-        # 장소 추출
-        venue = ""
-        venue_el = item.select_one(".venue, .place, [class*='venue'], [class*='place']")
-        if venue_el:
-            venue = venue_el.get_text(strip=True)
+        # 부모 요소에서 날짜/장소 추출
+        parent = link.parent
+        if parent is None:
+            parent = link
 
         # 날짜 추출
         date = ""
-        date_el = item.select_one(".date, .period, [class*='date'], [class*='period']")
+        date_el = parent.select_one(".show_date, .date, [class*='date'], [class*='period']")
         if date_el:
             date = date_el.get_text(strip=True)
 
-        # 가격 추출
-        price = ""
-        price_el = item.select_one(".price, [class*='price']")
-        if price_el:
-            price = price_el.get_text(strip=True)
+        # 장소 추출
+        venue = ""
+        venue_el = parent.select_one(".show_place, .venue, .place, [class*='venue'], [class*='place']")
+        if venue_el:
+            venue = venue_el.get_text(strip=True)
 
         return RawConcertData(
             title=title,
             artist_name=artist_name,
             venue=venue or None,
             date=date or None,
-            price=price or None,
+            price=None,
             booking_url=href or None,
             source_site=self.source_name,
         )
