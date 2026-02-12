@@ -70,13 +70,8 @@ class ConcertAnalyzer:
             )
 
             prompt = self.build_analysis_prompt(artist_name, serialized)
-
-            response = self.client.models.generate_content(
-                model=settings.AI_MODEL,
-                contents=prompt,
-            )
-            return self.parse_response(response.text)
-
+            text = self._generate_with_retry(prompt)
+            return self.parse_response(text)
 
         except Exception as e:
             logger.error(f"AI 분석 오류 '{artist_name}': {e}")
