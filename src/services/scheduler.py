@@ -9,26 +9,29 @@ logger = logging.getLogger(__name__)
 
 
 def sync_artist_concerts():
-    """가수 키워드 동기화 작업 — DB에서 가수 키워드를 읽어 Gemini로 내한 콘서트 검색"""
-    if not settings.DATABASE_URL:
+    """가수 키워드 동기화 작업 — Source DB에서 키워드 읽기 → Target DB에 결과 저장"""
+    if not settings.source_db_url or not settings.target_db_url:
         return
 
     logger.info("=== Starting artist concert sync ===")
 
-    from core.database import get_session_factory
+    from core.database import get_source_session_factory, get_target_session_factory
     from .sync_service import SyncService
 
-    factory = get_session_factory()
-    db = factory()
+    source_factory = get_source_session_factory()
+    target_factory = get_target_session_factory()
+    source_db = source_factory()
+    target_db = target_factory()
 
     try:
-        service = SyncService(db)
+        service = SyncService(source_db, target_db)
         result = service.sync_all(force=False)
         logger.info(f"Sync result: {result}")
     except Exception as e:
         logger.error(f"Sync error: {e}")
     finally:
-        db.close()
+        source_db.close()
+        target_db.close()
 
     logger.info("=== Artist concert sync complete ===")
 
@@ -58,8 +61,12 @@ def start_scheduler():
         logger.warning("Scheduler disabled (no API key)")
         return
 
-    if not settings.DATABASE_URL:
-        logger.warning("Scheduler disabled (no DATABASE_URL)")
+    if not settings.source_db_url:
+        logger.warning("Scheduler disabled (no SOURCE_DATABASE_URL)")
+        return
+
+    if not settings.target_db_url:
+        logger.warning("Scheduler disabled (no TARGET_DATABASE_URL)")
         return
 
     thread = Thread(target=run_scheduler, daemon=True)

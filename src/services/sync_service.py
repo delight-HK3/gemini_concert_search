@@ -1,6 +1,6 @@
 """가수 키워드 동기화 서비스
 
-파이프라인: DB 키워드 → 크롤링(여러 사이트) → 원본 저장 → AI 분석 → 정제 결과 저장
+파이프라인: Source DB 키워드 → 크롤링(여러 사이트) → Target DB 원본 저장 → AI 분석 → Target DB 정제 결과 저장
 """
 import asyncio
 import json
@@ -15,20 +15,25 @@ logger = logging.getLogger(__name__)
 
 
 class SyncService:
-    """크롤링 → AI 분석 → 저장 파이프라인"""
+    """크롤링 → AI 분석 → 저장 파이프라인
 
-    def __init__(self, db: Session):
-        self.db = db
+    source_db: 키워드를 읽어오는 DB 세션
+    target_db: 크롤링·분석 결과를 저장하는 DB 세션
+    """
+
+    def __init__(self, source_db: Session, target_db: Session):
+        self.source_db = source_db
+        self.target_db = target_db
         self.crawl_service = CrawlService()
         self.analyzer = ConcertAnalyzer()
 
     def fetch_artist_keywords(self):
-        """DB에서 가수 키워드 목록 조회"""
-        return self.db.query(ArtistKeyword).all()
+        """Source DB에서 가수 키워드 목록 조회"""
+        return self.source_db.query(ArtistKeyword).all()
 
     def get_already_synced_ids(self):
-        """이미 동기화된 artist_keyword_id 목록"""
-        rows = self.db.query(ConcertSearchResult.artist_keyword_id).distinct().all()
+        """Target DB에서 이미 동기화된 artist_keyword_id 목록"""
+        rows = self.target_db.query(ConcertSearchResult.artist_keyword_id).distinct().all()
         return {r[0] for r in rows}
 
     def _run_async(self, coro):
@@ -55,7 +60,7 @@ class SyncService:
         raw_data = self._run_async(self.crawl_service.crawl_all(artist.name))
         logger.info(f"  [크롤링] {len(raw_data)}건 수집")
 
-        # 2단계: 크롤링 원본 저장
+        # 2단계: 크롤링 원본 저장 (Target DB)
         for item in raw_data:
             record = CrawledData(
                 artist_keyword_id=artist.id,
@@ -69,16 +74,16 @@ class SyncService:
                 booking_url=item.booking_url,
                 crawled_at=datetime.utcnow(),
             )
-            self.db.add(record)
+            self.target_db.add(record)
         if raw_data:
-            self.db.commit()
+            self.target_db.commit()
             logger.info(f"  [원본 저장] {len(raw_data)}건")
 
         # 3단계: AI 분석 (크롤링 데이터가 없으면 AI 폴백 검색)
         analyzed = self.analyzer.analyze(artist.name, raw_data)
         logger.info(f"  [AI 분석] {len(analyzed)}건 정제")
 
-        # 4단계: 정제 결과 저장
+        # 4단계: 정제 결과 저장 (Target DB)
         if not analyzed:
             logger.info(f"  {artist.name}: 결과 없음, 건너뜀")
             return 0
@@ -102,10 +107,10 @@ class SyncService:
                 is_verified=c.get("is_verified", False),
                 synced_at=datetime.utcnow(),
             )
-            self.db.add(record)
+            self.target_db.add(record)
             saved += 1
 
-        self.db.commit()
+        self.target_db.commit()
         logger.info(f"  [저장 완료] {saved}건")
         return saved
 
@@ -128,15 +133,15 @@ class SyncService:
                 skipped += 1
                 continue
             else:
-                # force 모드일 때 기존 결과 삭제
+                # force 모드일 때 기존 결과 삭제 (Target DB)
                 if force and artist.id in self.get_already_synced_ids():
-                    self.db.query(ConcertSearchResult).filter(
+                    self.target_db.query(ConcertSearchResult).filter(
                         ConcertSearchResult.artist_keyword_id == artist.id
                     ).delete()
-                    self.db.query(CrawledData).filter(
+                    self.target_db.query(CrawledData).filter(
                         CrawledData.artist_keyword_id == artist.id
                     ).delete()
-                    self.db.commit()
+                    self.target_db.commit()
 
             count = self.sync_one(artist)
             synced += 1
@@ -153,7 +158,7 @@ class SyncService:
 
     def sync_by_artist_name(self, artist_name: str, force: bool = False) -> dict:
         """특정 가수 이름으로 동기화. 키워드 테이블에 없으면 None 반환."""
-        artist = self.db.query(ArtistKeyword).filter(ArtistKeyword.name == artist_name).first()
+        artist = self.source_db.query(ArtistKeyword).filter(ArtistKeyword.name == artist_name).first()
         if not artist:
             return None
 
@@ -161,38 +166,38 @@ class SyncService:
         if not force and artist.id in self.get_already_synced_ids():
             return {"artist_name": artist.name, "concerts_found": 0, "skipped": True}
 
-        # force 모드일 때 기존 결과 삭제
+        # force 모드일 때 기존 결과 삭제 (Target DB)
         if force and artist.id in self.get_already_synced_ids():
-            self.db.query(ConcertSearchResult).filter(
+            self.target_db.query(ConcertSearchResult).filter(
                 ConcertSearchResult.artist_keyword_id == artist.id
             ).delete()
-            self.db.query(CrawledData).filter(
+            self.target_db.query(CrawledData).filter(
                 CrawledData.artist_keyword_id == artist.id
             ).delete()
-            self.db.commit()
+            self.target_db.commit()
 
         count = self.sync_one(artist)
         return {"artist_name": artist.name, "concerts_found": count, "skipped": False}
 
     def get_results(self, artist_name: str = None):
-        """검색 결과 조회"""
-        query = self.db.query(ConcertSearchResult)
+        """검색 결과 조회 (Target DB)"""
+        query = self.target_db.query(ConcertSearchResult)
         if artist_name:
             query = query.filter(ConcertSearchResult.artist_name.like(f"%{artist_name}%"))
         return query.order_by(ConcertSearchResult.synced_at.desc()).all()
 
     def get_results_by_keyword_id(self, artist_keyword_id: int):
-        """특정 가수 키워드 ID의 검색 결과 조회"""
+        """특정 가수 키워드 ID의 검색 결과 조회 (Target DB)"""
         return (
-            self.db.query(ConcertSearchResult)
+            self.target_db.query(ConcertSearchResult)
             .filter(ConcertSearchResult.artist_keyword_id == artist_keyword_id)
             .order_by(ConcertSearchResult.synced_at.desc())
             .all()
         )
 
     def get_crawled_data(self, artist_name: str = None):
-        """크롤링 원본 데이터 조회"""
-        query = self.db.query(CrawledData)
+        """크롤링 원본 데이터 조회 (Target DB)"""
+        query = self.target_db.query(CrawledData)
         if artist_name:
             query = query.filter(CrawledData.artist_name.like(f"%{artist_name}%"))
         return query.order_by(CrawledData.crawled_at.desc()).all()
