@@ -7,12 +7,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Source DB — 가수 키워드를 읽어오는 DB
-      SOURCE_DATABASE_URL: "[dbname]://[userid]:[password]@[serverIP]:3306/[SourceDatabase]"
+      # Source DB — 가수 키워드를 읽어오는 DB (mysql, postgresql, sqlite 등)
+      SOURCE_DATABASE_URL: "[scheme]://[userid]:[password]@[serverIP]:[port]/[SourceDatabase]"
       # Target DB — 크롤링·AI 분석 결과를 저장하는 DB
-      TARGET_DATABASE_URL: "[dbname]://[userid]:[password]@[serverIP]:3306/[TargetDatabase]"
+      TARGET_DATABASE_URL: "[scheme]://[userid]:[password]@[serverIP]:[port]/[TargetDatabase]"
       # 하위 호환: SOURCE/TARGET 대신 단일 DB를 사용할 경우
-      # DATABASE_URL: "[dbname]://[userid]:[password]@[serverIP]:3306/[Database]"
+      # DATABASE_URL: "[scheme]://[userid]:[password]@[serverIP]:[port]/[Database]"
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       ENABLE_SCHEDULER: "true"
       BATCH_SIZE: "10"

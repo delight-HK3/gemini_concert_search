@@ -1,4 +1,4 @@
-"""데이터베이스 모델 (MariaDB)
+"""데이터베이스 모델
 
 ArtistKeyword → Source DB (키워드 읽기 전용)
 CrawledData, ConcertSearchResult → Target DB (결과 저장)

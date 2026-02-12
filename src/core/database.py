@@ -1,7 +1,8 @@
-"""MariaDB 데이터베이스 연결 및 세션 관리
+"""데이터베이스 연결 및 세션 관리
 
 Source DB: 가수 키워드를 읽어오는 DB (읽기 전용)
 Target DB: 크롤링 원본·AI 분석 결과를 저장하는 DB
+SQLAlchemy 지원 DB 모두 사용 가능 (MySQL, MariaDB, PostgreSQL, SQLite 등)
 """
 import logging
 from sqlalchemy import create_engine
@@ -21,13 +22,21 @@ _TargetSessionLocal = None
 
 
 def _normalize_url(url: str) -> str:
-    """DB 연결 문자열 정규화"""
+    """DB 연결 문자열 정규화 — SQLAlchemy가 인식할 수 있는 형태로 변환"""
+    # JDBC prefix 제거
     if url.startswith("jdbc:"):
         url = url[len("jdbc:"):]
-    if url.startswith("mysql://"):
-        url = url.replace("mysql://", "mysql+pymysql://", 1)
-    elif url.startswith("mariadb://"):
-        url = url.replace("mariadb://", "mariadb+pymysql://", 1)
+    # scheme에 드라이버가 없으면 기본 드라이버 추가
+    scheme = url.split("://")[0] if "://" in url else ""
+    if "+" not in scheme:
+        driver_map = {
+            "mysql": "mysql+pymysql",
+            "mariadb": "mariadb+pymysql",
+            "postgresql": "postgresql+psycopg2",
+            "postgres": "postgresql+psycopg2",
+        }
+        if scheme in driver_map:
+            url = url.replace(f"{scheme}://", f"{driver_map[scheme]}://", 1)
     return url
 
 

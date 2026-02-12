@@ -2,9 +2,9 @@
 import os
 
 class Settings:
-    # Source DB — 가수 키워드를 읽어오는 DB (읽기 전용)
+    # Source DB — 가수 키워드를 읽어오는 DB (읽기 전용, SQLAlchemy 지원 DB 모두 가능)
     SOURCE_DATABASE_URL: str = os.getenv("SOURCE_DATABASE_URL", "")
-    # Target DB — 크롤링 원본·AI 분석 결과를 저장하는 DB
+    # Target DB — 크롤링 원본·AI 분석 결과를 저장하는 DB (SQLAlchemy 지원 DB 모두 가능)
     TARGET_DATABASE_URL: str = os.getenv("TARGET_DATABASE_URL", "")
 
     # 하위 호환: DATABASE_URL만 설정된 경우 source/target 모두 동일 DB 사용
