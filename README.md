@@ -69,9 +69,9 @@ src/
 
 | 변수 | 필수 | 기본값 | 설명 |
 |------|------|--------|------|
-| `SOURCE_DATABASE_URL` | Yes* | — | 키워드를 읽어올 Source DB 연결 문자열 |
-| `TARGET_DATABASE_URL` | Yes* | — | 크롤링·AI 결과를 저장할 Target DB 연결 문자열 |
-| `DATABASE_URL` | Yes* | — | Source/Target 미설정 시 단일 DB로 사용 (하위 호환) |
+| `SOURCE_DATABASE_URL` | Yes | — | 키워드를 읽어올 Source DB 연결 문자열 |
+| `TARGET_DATABASE_URL` | Yes | — | 크롤링·AI 결과를 저장할 Target DB 연결 문자열 |
+| `DATABASE_URL` | Yes | — | Source/Target 미설정 시 단일 DB로 사용 (하위 호환) |
 | `GOOGLE_API_KEY` | Yes | — | Google Generative AI API 키 |
 | `AI_MODEL` | No | `gemini-2.5-flash` | Gemini 모델명 |
 | `ENABLE_SCHEDULER` | No | `true` | 백그라운드 동기화 활성화 여부 |
