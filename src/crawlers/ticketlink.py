@@ -11,7 +11,7 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://www.ticketlink.co.kr/search/"
+SEARCH_URL = "https://www.ticketlink.co.kr/search"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
@@ -48,7 +48,7 @@ class TicketLinkCrawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            query = f"{artist_name} 콘서트"
+            query = f"{artist_name}"
             html = await self._fetch(SEARCH_URL, {"query": query})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
@@ -58,6 +58,7 @@ class TicketLinkCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"[ticketlink] 크롤링 오류 '{artist_name}': {e}")
 
+        results = self.filter_results(results)
         self._log_result(artist_name, len(results))
         return results
 
@@ -126,18 +127,12 @@ class TicketLinkCrawler(BaseCrawler):
         if date_el:
             date = date_el.get_text(strip=True)
 
-        # 가격 추출
-        price = ""
-        price_el = item.select_one(".price, [class*='price']")
-        if price_el:
-            price = price_el.get_text(strip=True)
 
         return RawConcertData(
             title=title,
             artist_name=artist_name,
             venue=venue or None,
             date=date or None,
-            price=price or None,
             booking_url=href or None,
             source_site=self.source_name,
         )
