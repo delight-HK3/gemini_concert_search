@@ -93,21 +93,78 @@ class ConcertAnalyzer:
             text = self._generate_with_retry(prompt, use_search=True)
             results = self.parse_response(text)
 
-            # 크롤링 데이터보다 AI 결과가 많으면 초과분 제거 (AI가 임의 추가한 항목)
-            if len(results) > len(raw_data):
-                logger.warning(
-                    f"AI 결과({len(results)}건)가 크롤링 데이터({len(raw_data)}건)보다 많음 — 초과분 제거"
-                )
-                # 크롤링 booking_url 기반으로 매칭된 항목만 유지
-                crawled_urls = {d.booking_url for d in raw_data if d.booking_url}
-                matched = [r for r in results if r.get("booking_url") in crawled_urls]
-                results = matched if matched else results[:len(raw_data)]
+            # AI 결과와 크롤링 데이터 수 보정
+            results = self._align_results_with_crawled(results, raw_data)
 
             return results
 
         except Exception as e:
             logger.error(f"AI 분석 오류 '{artist_name}': {e}")
             return []
+
+    def _align_results_with_crawled(self, results: List[Dict],
+                                      raw_data: List[RawConcertData]) -> List[Dict]:
+        """AI 결과와 크롤링 데이터 수를 맞춤
+
+        - AI가 날짜별 항목을 합쳤으면 크롤링 데이터 기반으로 분리하여 보정
+        - AI가 항목을 임의 추가했으면 초과분 제거
+        """
+        if len(results) == len(raw_data):
+            return results
+
+        if len(results) > len(raw_data):
+            logger.warning(
+                f"AI 결과({len(results)}건)가 크롤링({len(raw_data)}건)보다 많음 — 초과분 제거"
+            )
+            crawled_urls = {d.booking_url for d in raw_data if d.booking_url}
+            matched = [r for r in results if r.get("booking_url") in crawled_urls]
+            return matched if matched else results[:len(raw_data)]
+
+        # AI 결과가 크롤링보다 적음 — AI가 같은 제목의 날짜별 항목을 합친 경우
+        logger.warning(
+            f"AI 결과({len(results)}건)가 크롤링({len(raw_data)}건)보다 적음 — 날짜별 분리 보정"
+        )
+        # AI 결과를 booking_url 기준으로 인덱싱
+        ai_by_url = {}
+        for r in results:
+            url = r.get("booking_url", "")
+            ai_by_url[url] = r
+
+        aligned = []
+        for item in raw_data:
+            # 같은 booking_url의 AI 결과를 찾아서 날짜만 교체
+            ai_result = ai_by_url.get(item.booking_url)
+            if ai_result:
+                entry = dict(ai_result)
+                # 크롤링 데이터의 개별 날짜로 덮어쓰기
+                if item.date:
+                    dates = re.findall(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", item.date)
+                    if dates:
+                        y, m, d = dates[0]
+                        entry["concert_date"] = f"{y}-{int(m):02d}-{int(d):02d}"
+                aligned.append(entry)
+            else:
+                # AI 결과에 없으면 크롤링 데이터로 직접 생성
+                dates = re.findall(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", item.date or "")
+                concert_date = None
+                if dates:
+                    y, m, d = dates[0]
+                    concert_date = f"{y}-{int(m):02d}-{int(d):02d}"
+                aligned.append({
+                    "concert_title": item.title,
+                    "venue": item.venue,
+                    "concert_date": concert_date,
+                    "concert_time": item.time,
+                    "ticket_price": item.price,
+                    "booking_date": None,
+                    "booking_url": item.booking_url,
+                    "source": "crawl+ai",
+                    "confidence": 0.5,
+                    "data_sources": item.source_site,
+                    "is_verified": False,
+                })
+
+        return aligned
 
     def _fallback_search(self, artist_name: str) -> List[Dict]:
         """크롤링 데이터가 없을 때 AI 직접 검색 (폴백)"""
@@ -151,13 +208,8 @@ JSON 배열만 출력하세요."""
 
 위 데이터를 분석하여 다음 작업을 수행하세요:
 
-1. **사이트별 개별 유지**: 같은 공연이라도 사이트별로 별도 항목으로 유지하세요 (병합 금지). 각 사이트의 booking_url이 다르므로 반드시 개별 저장해야 합니다.
-2. **데이터 정제**: 시간(HH:MM), 가격 형식을 통일
-   - **concert_date 날짜 변환 규칙**: 크롤링 날짜를 YYYY-MM-DD 형식으로 변환하되, 날짜가 여러 개이면 반드시 모두 보존하세요.
-     - 단일 날짜: "2026.02.27" → "2026-02-27"
-     - 범위 날짜: "2026.02.27~2026.02.28" → "2026-02-27 ~ 2026-02-28"
-     - 여러 날짜: "2026.02.27, 2026.02.28, 2026.03.01" → "2026-02-27 ~ 2026-02-28 ~ 2026-03-01"
-   - 절대로 날짜를 하나로 축소하지 마세요. 크롤링 데이터에 있는 모든 날짜를 포함해야 합니다.
+1. **항목별 개별 유지 (병합 금지)**: 입력된 크롤링 항목을 1:1로 매핑하여 출력하세요. 같은 제목이라도 날짜가 다르면 별도 항목입니다. 예: 2/27 1건 + 2/28 1건 = 출력 2건. 절대 합치지 마세요.
+2. **데이터 정제**: 날짜(YYYY-MM-DD), 시간(HH:MM), 가격 형식을 통일. 각 크롤링 항목의 date 값을 그대로 YYYY-MM-DD로 변환하세요 (이미 단일 날짜로 분리되어 있음).
 3. **교차 검증**: 같은 공연이 여러 사이트에 있으면 is_verified를 true로 설정
 4. **빠진 정보 검색 보충**: 크롤링 데이터에 아래 항목이 비어있으면(null) 웹 검색을 통해 찾아서 채워주세요:
    - **concert_time** (공연 시간): 크롤링 결과에 time이 null인 경우 검색으로 보충
@@ -169,7 +221,7 @@ JSON 배열만 출력하세요."""
   {{
     "concert_title": "크롤링 데이터의 title 필드 값을 그대로 사용",
     "venue": "공연 장소",
-    "concert_date": "2026-03-15",
+    "concert_date": "2026-02-27",
     "concert_time": "19:00",
     "ticket_price": "VIP 198,000원 / R석 165,000원 / S석 132,000원",
     "booking_date": "2026-02-01",
@@ -182,7 +234,7 @@ JSON 배열만 출력하세요."""
   {{
     "concert_title": "크롤링 데이터의 title 필드 값을 그대로 사용",
     "venue": "공연 장소",
-    "concert_date": "2026-03-15",
+    "concert_date": "2026-02-27",
     "concert_time": "19:00",
     "ticket_price": "VIP 198,000원 / R석 165,000원 / S석 132,000원",
     "booking_date": "2026-02-01",
@@ -195,9 +247,10 @@ JSON 배열만 출력하세요."""
 ]
 
 규칙:
-- **절대 규칙**: 크롤링 데이터에 있는 공연만 결과에 포함하세요. 크롤링 데이터에 없는 공연을 임의로 추가하거나 만들어내지 마세요. 결과 항목 수는 크롤링 데이터의 항목 수와 정확히 같아야 합니다.
+- **절대 규칙**: 입력 크롤링 항목과 출력 항목이 반드시 1:1 대응해야 합니다. 항목을 추가하거나 합치지 마세요.
 - **concert_title**: 각 크롤링 항목의 "title" 필드 값을 그대로 사용하세요 (아티스트 이름이 아닌 실제 공연 제목).
-- 같은 공연이라도 사이트별로 별도 항목을 유지하세요 (각 사이트의 booking_url을 보존)
+- **concert_date**: 각 크롤링 항목의 "date" 필드를 YYYY-MM-DD로 변환하세요. 같은 제목이라도 날짜가 다르면 별도 항목입니다.
+- 같은 공연이라도 사이트별·날짜별로 별도 항목을 유지하세요
 - 크롤링 데이터에 이미 있는 정보(제목, 장소, 날짜 등)는 그대로 사용하세요
 - concert_time, ticket_price, booking_date가 크롤링에 없을 때만 검색으로 보충하세요
 - ticket_price 포맷: 금액 단위는 반드시 '원'을 사용하세요 (예: 99,000원). 가격대가 하나뿐이면 앞에 "전석"을 붙이세요 (예: "전석 99,000원"). 여러 등급이면 "VIP 198,000원 / R석 165,000원" 형식으로 작성하세요. 지정석과 스탠딩석 가격이 동일하더라도 "전석"으로 합치지 말고 "스탠딩석 111,000원 / 지정석 111,000원"처럼 각각 분리하여 표기하세요
