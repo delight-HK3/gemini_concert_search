@@ -5,9 +5,10 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from sqlalchemy.orm import Session
 from models.external import ArtistKeyword, CrawledData, ConcertSearchResult
+from crawlers.base import BaseCrawler
 from .crawl_service import CrawlService
 from .concert_analyzer import ConcertAnalyzer
 
@@ -93,6 +94,16 @@ class SyncService:
             if len(analyzed) < before:
                 logger.info(f"  [필터] AI 전용 항목 {before - len(analyzed)}건 제거 (크롤링 데이터 존재)")
 
+        # AI 결과에서도 지난 공연 제거 (concert_date 기준)
+        if analyzed:
+            before = len(analyzed)
+            analyzed = [
+                c for c in analyzed
+                if not BaseCrawler.is_past_event(c.get("concert_date"))
+            ]
+            if len(analyzed) < before:
+                logger.info(f"  [필터] 지난 공연 {before - len(analyzed)}건 제거")
+        
         logger.info(f"  [AI 분석] {len(analyzed)}건 정제")
 
         # 4단계: 정제 결과 저장 (Target DB)
