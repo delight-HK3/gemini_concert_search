@@ -1,5 +1,6 @@
 """크롤러 공통 인터페이스 및 데이터 모델"""
 from abc import ABC, abstractmethod
+import copy
 from dataclasses import dataclass, field, asdict
 from datetime import date
 from typing import List, Optional
@@ -87,8 +88,37 @@ class BaseCrawler(ABC):
         except (ValueError, IndexError):
             return False
 
+    @staticmethod
+    def _expand_date_ranges(results: List[RawConcertData]) -> List[RawConcertData]:
+        """범위 날짜(2026.02.27~2026.02.28)를 개별 항목으로 분리
+
+        하나의 크롤링 항목에 날짜가 여러 개이면 각 날짜별로 별도 항목을 생성한다.
+        """
+        expanded = []
+        for item in results:
+            if not item.date:
+                expanded.append(item)
+                continue
+
+            dates = re.findall(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", item.date)
+            if len(dates) <= 1:
+                expanded.append(item)
+                continue
+
+            # 날짜가 여러 개이면 각각 별도 항목 생성
+            for y, m, d in dates:
+                new_item = copy.copy(item)
+                new_item.date = f"{y}.{int(m):02d}.{int(d):02d}"
+                expanded.append(new_item)
+
+        return expanded
+
     def filter_results(self, results: List[RawConcertData]) -> List[RawConcertData]:
-        """비콘서트·지난 공연 제외"""
+        """범위 날짜 분리 → 비콘서트 제외 → 지난 공연 제외"""
+        # 1) 범위 날짜를 개별 항목으로 분리
+        results = self._expand_date_ranges(results)
+
+        # 2) 비콘서트·지난 공연 제외
         filtered = []
         for item in results:
             if not self.is_concert_title(item.title):
