@@ -9,6 +9,7 @@ import json
 import logging
 import time
 import re
+from datetime import date
 from typing import List, Dict
 from core.config import settings
 from crawlers.base import RawConcertData
@@ -129,6 +130,7 @@ class ConcertAnalyzer:
 - data_sources: "ai_only"
 - is_verified: false
 
+오늘 날짜 이전에 이미 종료된 공연은 제외하세요 (오늘: {date.today().isoformat()}).
 확인된 정보가 없으면 빈 배열 []을 반환하세요.
 추측이나 가짜 정보는 절대 포함하지 마세요.
 JSON 배열만 출력하세요."""
