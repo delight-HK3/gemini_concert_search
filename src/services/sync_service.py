@@ -81,6 +81,18 @@ class SyncService:
 
         # 3단계: AI 분석 (크롤링 데이터가 없으면 AI 폴백 검색)
         analyzed = self.analyzer.analyze(artist.name, raw_data)
+
+        # 크롤링 결과가 있는 경우, AI가 임의로 추가한 ai_search 전용 항목 제거
+        if raw_data and analyzed:
+            before = len(analyzed)
+            analyzed = [
+                c for c in analyzed
+                if c.get("source") != "ai_search"
+                and c.get("data_sources") != "ai_only"
+            ]
+            if len(analyzed) < before:
+                logger.info(f"  [필터] AI 전용 항목 {before - len(analyzed)}건 제거 (크롤링 데이터 존재)")
+
         logger.info(f"  [AI 분석] {len(analyzed)}건 정제")
 
         # 4단계: 정제 결과 저장 (Target DB)
