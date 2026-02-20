@@ -1,5 +1,6 @@
 """yes24 티켓 크롤러"""
 import logging
+import re
 from typing import List
 from urllib.parse import quote
 
@@ -11,17 +12,28 @@ from .base import BaseCrawler, RawConcertData
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://ticket.yes24.com/search/Search.aspx"
+SEARCH_URL = "https://ticket.yes24.com/search"
 TIMEOUT = 15.0
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
+        "Chrome/145.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "ko-KR,ko;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://ticket.yes24.com/",
+    "Sec-Ch-Ua": '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0",
+    "Connection": "keep-alive",
 }
 
 
@@ -48,8 +60,8 @@ class Yes24Crawler(BaseCrawler):
         results: List[RawConcertData] = []
 
         try:
-            query = f"{artist_name} 콘서트"
-            html = await self._fetch(SEARCH_URL, {"query": query})
+            url = f"{SEARCH_URL}/{quote(artist_name)}"
+            html = await self._fetch(url, {})
             results = self._parse_search_results(html, artist_name)
         except httpx.HTTPStatusError as e:
             logger.warning(f"[yes24] HTTP {e.response.status_code} for '{artist_name}'")
@@ -58,6 +70,7 @@ class Yes24Crawler(BaseCrawler):
         except Exception as e:
             logger.error(f"[yes24] 크롤링 오류 '{artist_name}': {e}")
 
+        results = self.filter_results(results)
         self._log_result(artist_name, len(results))
         return results
 
@@ -66,78 +79,63 @@ class Yes24Crawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         results: List[RawConcertData] = []
 
-        # Yes24 티켓 검색 결과 항목 파싱
-        items = soup.select(
-            ".sch_lst li, .search_list li, .srch_list li, "
-            ".list_item, .product_list li, #schList li"
-        )
+        # Yes24 실제 구조: div.srch-list-item (display:none 템플릿 제외)
+        items = soup.select(".srch-list-item")
         for item in items:
+            if "display:none" in (item.get("style") or "").replace(" ", ""):
+                continue
             data = self._parse_item(item, artist_name)
             if data:
                 results.append(data)
 
-        # 대체 셀렉터 — 사이트 구조 변경 대비
-        if not results:
-            items = soup.select(
-                "[class*='sch'] li, [class*='search'] li, "
-                "[class*='product'], [class*='concert'], [class*='ticket']"
-            )
-            for item in items:
-                data = self._parse_item(item, artist_name)
-                if data:
-                    results.append(data)
-
         return results
 
     def _parse_item(self, item, artist_name: str) -> RawConcertData | None:
-        """개별 검색 결과 항목 파싱"""
-        # 제목 추출
-        title_el = item.select_one(
-            ".sch_tit a, .tit a, .title a, .prd_name a, "
-            "h3 a, h4 a, .name a, a[class*='tit'], a[class*='name']"
-        )
+        """개별 검색 결과 항목 파싱
+
+        Yes24 검색 결과 구조:
+          div.srch-list-item
+            div > a > img           (포스터)
+            div
+              p.item-tit > a        (제목 + 링크)
+            div                     (날짜, 클래스 없음)
+            div                     (장소, 클래스 없음)
+        """
+        # 제목·링크 추출 — p.item-tit 안의 a 태그
+        title_el = item.select_one(".item-tit a")
         if not title_el:
             return None
 
-        title = title_el.get_text(strip=True)
+        title = " ".join(title_el.get_text().split())
         if not title:
             return None
 
-        # 링크 추출
         href = title_el.get("href", "")
         if href and not href.startswith("http"):
             href = f"https://ticket.yes24.com{href}"
 
-        # 장소 추출
-        venue = ""
-        venue_el = item.select_one(
-            ".venue, .place, .location, "
-            "[class*='venue'], [class*='place'], [class*='location']"
-        )
-        if venue_el:
-            venue = venue_el.get_text(strip=True)
-
-        # 날짜 추출
-        date = ""
-        date_el = item.select_one(
-            ".date, .period, .schedule, "
-            "[class*='date'], [class*='period'], [class*='schedule']"
-        )
-        if date_el:
-            date = date_el.get_text(strip=True)
-
-        # 가격 추출
-        price = ""
-        price_el = item.select_one(".price, [class*='price']")
-        if price_el:
-            price = price_el.get_text(strip=True)
+        # 날짜·장소 추출 — 자식 요소 없이 텍스트만 가진 div에서 추출
+        date = None
+        venue = None
+        for div in item.find_all("div", recursive=False):
+            # 자식 요소(p, a, img 등)가 있는 div는 건너뜀 → 텍스트 전용 div만 대상
+            if div.find(True):
+                continue
+            text = div.get_text(strip=True)
+            if not text:
+                continue
+            # 날짜 패턴: 2026.03.28 또는 2026.03.28~2026.03.29
+            if re.search(r"\d{4}\.\d{2}\.\d{2}", text):
+                date = text
+            else:
+                venue = text
 
         return RawConcertData(
             title=title,
             artist_name=artist_name,
-            venue=venue or None,
-            date=date or None,
-            price=price or None,
+            venue=venue,
+            date=date,
+            price=None,
             booking_url=href or None,
             source_site=self.source_name,
         )
