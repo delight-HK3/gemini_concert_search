@@ -54,6 +54,7 @@ class MelonCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"[melon] 크롤링 오류 '{artist_name}': {e}")
 
+        results = self.filter_results(results)
         self._log_result(artist_name, len(results))
         return results
 
