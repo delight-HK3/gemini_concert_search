@@ -37,6 +37,65 @@ class SyncService:
         rows = self.target_db.query(ConcertSearchResult.artist_keyword_id).distinct().all()
         return {r[0] for r in rows}
 
+    @staticmethod
+    def _is_empty(value) -> bool:
+        """값이 비어있거나 미정인지 확인"""
+        if value is None:
+            return True
+        if isinstance(value, str) and value.strip() in ("", "미정"):
+            return True
+        return False
+
+    def _find_existing_record(self, artist_id: int,
+                              concert: dict):
+        """기존 레코드 중 동일 공연 찾기 (booking_url 우선, 없으면 제목+장소)"""
+        booking_url = concert.get("booking_url")
+
+        if booking_url:
+            existing = self.target_db.query(ConcertSearchResult).filter(
+                ConcertSearchResult.artist_keyword_id == artist_id,
+                ConcertSearchResult.booking_url == booking_url,
+            ).first()
+            if existing:
+                return existing
+
+        # 폴백: 제목 + 장소로 매칭
+        title = concert.get("concert_title")
+        venue = concert.get("venue")
+        if title:
+            query = self.target_db.query(ConcertSearchResult).filter(
+                ConcertSearchResult.artist_keyword_id == artist_id,
+                ConcertSearchResult.concert_title == title,
+            )
+            if venue:
+                query = query.filter(ConcertSearchResult.venue == venue)
+            existing = query.first()
+            if existing:
+                return existing
+
+        return None
+
+    def _update_record(self, existing: ConcertSearchResult,
+                       new_data: dict) -> bool:
+        """기존 레코드의 빈 필드만 새 데이터로 채움. 변경이 있으면 True 반환."""
+        updatable_fields = [
+            "concert_date", "concert_time", "ticket_price",
+            "booking_date", "booking_url",
+        ]
+        updated = False
+        for field in updatable_fields:
+            old_value = getattr(existing, field)
+            new_value = new_data.get(field)
+            if self._is_empty(old_value) and not self._is_empty(new_value):
+                setattr(existing, field, new_value)
+                updated = True
+
+        if updated:
+            existing.synced_at = datetime.utcnow()
+            existing.raw_response = json.dumps(new_data, ensure_ascii=False)
+
+        return updated
+
     def _run_async(self, coro):
         """동기 컨텍스트에서 비동기 코루틴 실행"""
         try:
@@ -53,7 +112,7 @@ class SyncService:
         else:
             return asyncio.run(coro)
 
-    def sync_one(self, artist: ArtistKeyword) -> int:
+    def sync_one(self, artist: ArtistKeyword, force: bool = False) -> dict:
         """단일 가수: 크롤링 → 원본 저장 → AI 분석 → 정제 결과 저장"""
         logger.info(f"=== 파이프라인 시작: {artist.name} ===")
 
@@ -95,10 +154,9 @@ class SyncService:
         # ── 결과 저장 ──
         if not analyzed:
             logger.info(f"  {artist.name}: 결과 없음, 건너뜀")
-            return 0
+            return {"inserted": 0, "updated": 0, "skipped": 0}
 
-        saved = self._save_results(artist, analyzed)
-        return saved
+        return self._save_results(artist, analyzed, force=force)
 
     def _process_crawled(self, artist: ArtistKeyword,
                          raw_data: list) -> list:
@@ -138,10 +196,26 @@ class SyncService:
         return analyzed
 
     def _save_results(self, artist: ArtistKeyword,
-                      analyzed: list) -> int:
-        """정제된 결과를 ConcertSearchResult 테이블에 저장"""
-        saved = 0
+                      analyzed: list, force: bool = False) -> dict:
+        """정제된 결과를 ConcertSearchResult 테이블에 저장 (upsert 지원)
+
+        force=False: 기존 레코드 매칭 → 빈 필드만 갱신, 새 공연은 신규 삽입
+        force=True: 전부 신규 삽입 (기존 데이터는 이미 삭제된 상태)
+        """
+        inserted = 0
+        updated = 0
+        skipped = 0
+
         for c in analyzed:
+            if not force:
+                existing = self._find_existing_record(artist.id, c)
+                if existing:
+                    if self._update_record(existing, c):
+                        updated += 1
+                    else:
+                        skipped += 1
+                    continue
+
             record = ConcertSearchResult(
                 artist_keyword_id=artist.id,
                 artist_name=artist.name,
@@ -160,50 +234,55 @@ class SyncService:
                 synced_at=datetime.utcnow(),
             )
             self.target_db.add(record)
-            saved += 1
+            inserted += 1
 
         self.target_db.commit()
-        logger.info(f"  [저장 완료] {saved}건")
-        return saved
+        logger.info(
+            f"  [저장 완료] 신규 {inserted}건, 업데이트 {updated}건, 변경없음 {skipped}건"
+        )
+        return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
     def sync_all(self, force: bool = False) -> dict:
-        """전체 동기화. force=True면 이미 동기화된 것도 다시 검색."""
+        """전체 동기화.
+
+        force=False: 모든 아티스트 파이프라인 실행, 기존 레코드의 빈 필드만 갱신 + 새 공연 삽입
+        force=True: 기존 데이터 전부 삭제 후 재삽입
+        """
         artists = self.fetch_artist_keywords()
         if not artists:
             logger.info("No artist keywords found in DB")
-            return {"total_artists": 0, "synced": 0, "skipped": 0, "concerts_found": 0}
-
-        synced_ids = set() if force else self.get_already_synced_ids()
+            return {
+                "total_artists": 0, "synced": 0, "skipped": 0,
+                "concerts_found": 0, "concerts_updated": 0,
+            }
 
         total = len(artists)
         synced = 0
-        skipped = 0
         concerts_found = 0
+        concerts_updated = 0
 
         for artist in artists:
-            if not force and artist.id in synced_ids:
-                skipped += 1
-                continue
-            else:
-                # force 모드일 때 기존 결과 삭제 (Target DB)
-                if force and artist.id in self.get_already_synced_ids():
-                    self.target_db.query(ConcertSearchResult).filter(
-                        ConcertSearchResult.artist_keyword_id == artist.id
-                    ).delete()
-                    self.target_db.query(CrawledData).filter(
-                        CrawledData.artist_keyword_id == artist.id
-                    ).delete()
-                    self.target_db.commit()
+            if force:
+                # force 모드: 기존 결과 삭제 후 재삽입
+                self.target_db.query(ConcertSearchResult).filter(
+                    ConcertSearchResult.artist_keyword_id == artist.id
+                ).delete()
+                self.target_db.query(CrawledData).filter(
+                    CrawledData.artist_keyword_id == artist.id
+                ).delete()
+                self.target_db.commit()
 
-            count = self.sync_one(artist)
+            save_result = self.sync_one(artist, force=force)
             synced += 1
-            concerts_found += count
+            concerts_found += save_result["inserted"]
+            concerts_updated += save_result["updated"]
 
         result = {
             "total_artists": total,
             "synced": synced,
-            "skipped": skipped,
+            "skipped": 0,
             "concerts_found": concerts_found,
+            "concerts_updated": concerts_updated,
         }
         logger.info(f"Sync complete: {result}")
         return result
@@ -214,12 +293,8 @@ class SyncService:
         if not artist:
             return None
 
-        # 이미 동기화된 경우 처리
-        if not force and artist.id in self.get_already_synced_ids():
-            return {"artist_name": artist.name, "concerts_found": 0, "skipped": True}
-
         # force 모드일 때 기존 결과 삭제 (Target DB)
-        if force and artist.id in self.get_already_synced_ids():
+        if force:
             self.target_db.query(ConcertSearchResult).filter(
                 ConcertSearchResult.artist_keyword_id == artist.id
             ).delete()
@@ -228,8 +303,13 @@ class SyncService:
             ).delete()
             self.target_db.commit()
 
-        count = self.sync_one(artist)
-        return {"artist_name": artist.name, "concerts_found": count, "skipped": False}
+        save_result = self.sync_one(artist, force=force)
+        return {
+            "artist_name": artist.name,
+            "concerts_found": save_result["inserted"],
+            "concerts_updated": save_result["updated"],
+            "skipped": False,
+        }
 
     def get_results(self, artist_name: str = None):
         """검색 결과 조회 (Target DB)"""
