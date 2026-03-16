@@ -57,11 +57,53 @@ class SyncService:
         """단일 가수: 크롤링 → 원본 저장 → AI 분석 → 정제 결과 저장"""
         logger.info(f"=== 파이프라인 시작: {artist.name} ===")
 
-        # 1단계: 크롤링
+        # ── 1단계: 크롤링 ──
         raw_data = self._run_async(self.crawl_service.crawl_all(artist.name))
         logger.info(f"  [크롤링] {len(raw_data)}건 수집")
 
-        # 2단계: 크롤링 원본 저장 (Target DB)
+        if raw_data:
+            # ── 크롤링 성공 경로 ──
+            analyzed = self._process_crawled(artist, raw_data)
+        else:
+            # ── 크롤링 실패 → AI 검색 폴백 ──
+            logger.info(f"  [크롤링 실패] 결과 없음 → AI 검색으로 전환")
+            analyzed = self.analyzer.search_concerts(artist.name)
+            if analyzed:
+                logger.info(f"  [AI 검색] {len(analyzed)}건 발견")
+            else:
+                logger.info(f"  [AI 검색] 결과 없음")
+
+        # ── 공통: 아티스트 검증 ──
+        if analyzed:
+            before = len(analyzed)
+            analyzed = self.analyzer.verify_artist_match(artist.name, analyzed)
+            if len(analyzed) < before:
+                logger.info(f"  [아티스트 검증] {before - len(analyzed)}건 제거됨")
+
+        # ── 공통: 지난 공연 제거 ──
+        if analyzed:
+            before = len(analyzed)
+            analyzed = [
+                c for c in analyzed
+                if not BaseCrawler.is_past_event(c.get("concert_date"))
+            ]
+            if len(analyzed) < before:
+                logger.info(f"  [필터] 지난 공연 {before - len(analyzed)}건 제거")
+
+        logger.info(f"  [최종] {len(analyzed)}건 정제")
+
+        # ── 결과 저장 ──
+        if not analyzed:
+            logger.info(f"  {artist.name}: 결과 없음, 건너뜀")
+            return 0
+
+        saved = self._save_results(artist, analyzed)
+        return saved
+
+    def _process_crawled(self, artist: ArtistKeyword,
+                         raw_data: list) -> list:
+        """크롤링 성공: 원본 저장 → AI 분석 → 필터"""
+        # 크롤링 원본 저장
         for item in raw_data:
             record = CrawledData(
                 artist_keyword_id=artist.id,
@@ -76,15 +118,14 @@ class SyncService:
                 crawled_at=datetime.utcnow(),
             )
             self.target_db.add(record)
-        if raw_data:
-            self.target_db.commit()
-            logger.info(f"  [원본 저장] {len(raw_data)}건")
+        self.target_db.commit()
+        logger.info(f"  [원본 저장] {len(raw_data)}건")
 
-        # 3단계: AI 분석 (크롤링 데이터가 없으면 AI 폴백 검색)
+        # AI 분석 (크롤링 데이터 기반)
         analyzed = self.analyzer.analyze(artist.name, raw_data)
 
-        # 크롤링 결과가 있는 경우, AI가 임의로 추가한 ai_search 전용 항목 제거
-        if raw_data and analyzed:
+        # AI가 임의로 추가한 ai_search 전용 항목 제거
+        if analyzed:
             before = len(analyzed)
             analyzed = [
                 c for c in analyzed
@@ -92,25 +133,13 @@ class SyncService:
                 and c.get("data_sources") != "ai_only"
             ]
             if len(analyzed) < before:
-                logger.info(f"  [필터] AI 전용 항목 {before - len(analyzed)}건 제거 (크롤링 데이터 존재)")
+                logger.info(f"  [필터] AI 전용 항목 {before - len(analyzed)}건 제거")
 
-        # AI 결과에서도 지난 공연 제거 (concert_date 기준)
-        if analyzed:
-            before = len(analyzed)
-            analyzed = [
-                c for c in analyzed
-                if not BaseCrawler.is_past_event(c.get("concert_date"))
-            ]
-            if len(analyzed) < before:
-                logger.info(f"  [필터] 지난 공연 {before - len(analyzed)}건 제거")
-        
-        logger.info(f"  [AI 분석] {len(analyzed)}건 정제")
+        return analyzed
 
-        # 4단계: 정제 결과 저장 (Target DB)
-        if not analyzed:
-            logger.info(f"  {artist.name}: 결과 없음, 건너뜀")
-            return 0
-
+    def _save_results(self, artist: ArtistKeyword,
+                      analyzed: list) -> int:
+        """정제된 결과를 ConcertSearchResult 테이블에 저장"""
         saved = 0
         for c in analyzed:
             record = ConcertSearchResult(
