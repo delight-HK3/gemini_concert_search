@@ -80,7 +80,7 @@ class ConcertAnalyzer:
             return []
 
         if not raw_data:
-            return self._fallback_search(artist_name)
+            return []
 
         try:
             serialized = json.dumps(
@@ -102,6 +102,25 @@ class ConcertAnalyzer:
             logger.error(f"AI 분석 오류 '{artist_name}': {e}")
             return []
 
+    def _fix_data_sources(self, results: List[Dict],
+                          raw_data: List[RawConcertData]) -> List[Dict]:
+        """AI가 반환한 data_sources를 크롤링 source_site 기준으로 보정
+
+        AI가 data_sources에 숫자("1", "2") 등 잘못된 값을 넣는 경우가 있으므로,
+        크롤링 데이터의 source_site를 ground truth로 사용한다.
+        """
+        url_to_site = {d.booking_url: d.source_site for d in raw_data if d.booking_url}
+        for r in results:
+            url = r.get("booking_url", "")
+            site = url_to_site.get(url)
+            if site:
+                old = r.get("data_sources", "")
+                if "ai_search" in str(old):
+                    r["data_sources"] = f"{site},ai_search"
+                else:
+                    r["data_sources"] = site
+        return results
+
     def _align_results_with_crawled(self, results: List[Dict],
                                       raw_data: List[RawConcertData]) -> List[Dict]:
         """AI 결과와 크롤링 데이터 수를 맞춤
@@ -110,7 +129,7 @@ class ConcertAnalyzer:
         - AI가 항목을 임의 추가했으면 초과분 제거
         """
         if len(results) == len(raw_data):
-            return results
+            return self._fix_data_sources(results, raw_data)
 
         if len(results) > len(raw_data):
             logger.warning(
@@ -118,7 +137,8 @@ class ConcertAnalyzer:
             )
             crawled_urls = {d.booking_url for d in raw_data if d.booking_url}
             matched = [r for r in results if r.get("booking_url") in crawled_urls]
-            return matched if matched else results[:len(raw_data)]
+            filtered = matched if matched else results[:len(raw_data)]
+            return self._fix_data_sources(filtered, raw_data)
 
         # AI 결과가 크롤링보다 적음 — AI가 같은 제목의 날짜별 항목을 합친 경우
         logger.warning(
@@ -164,10 +184,10 @@ class ConcertAnalyzer:
                     "is_verified": False,
                 })
 
-        return aligned
+        return self._fix_data_sources(aligned, raw_data)
 
-    def _fallback_search(self, artist_name: str) -> List[Dict]:
-        """크롤링 데이터가 없을 때 AI 직접 검색 (폴백)"""
+    def search_concerts(self, artist_name: str) -> List[Dict]:
+        """크롤링 실패 시 AI 직접 검색으로 콘서트 정보 수집"""
         if not self.client:
             return []
 
@@ -260,6 +280,103 @@ JSON 배열만 출력하세요."""
 - is_verified: 같은 공연이 2개 이상 사이트에서 확인되면 true (각 항목 모두 true)
 - data_sources: 해당 항목의 원본 사이트 이름 (AI 보충 시 "사이트명,ai_search")
 - JSON 배열만 출력하세요."""
+
+    def verify_artist_match(self, artist_name: str,
+                            concerts: List[Dict]) -> List[Dict]:
+        """콘서트 결과가 실제로 해당 아티스트의 공연인지 AI로 검증
+
+        'ALI', 'Ado', 'REN' 등 짧거나 흔한 문자열이 키워드일 때,
+        동명이인·무관한 공연이 섞여 들어오는 것을 걸러낸다.
+
+        Args:
+            artist_name: 검증 대상 아티스트 이름
+            concerts: AI 분석/검색으로 얻은 콘서트 목록
+
+        Returns:
+            해당 아티스트의 공연으로 확인된 항목만 포함한 목록
+        """
+        if not self.client or not concerts:
+            return concerts
+
+        try:
+            items_json = json.dumps(
+                [{"index": i,
+                  "concert_title": c.get("concert_title", ""),
+                  "venue": c.get("venue", ""),
+                  "concert_date": c.get("concert_date", ""),
+                  "booking_url": c.get("booking_url", "")}
+                 for i, c in enumerate(concerts)],
+                ensure_ascii=False, indent=2,
+            )
+
+            prompt = f"""당신은 콘서트 데이터 검증 전문가입니다.
+
+아티스트 이름: "{artist_name}"
+
+아래는 "{artist_name}" 키워드로 검색하여 수집된 콘서트 목록입니다.
+하지만 이 중에는 "{artist_name}"과 이름이 비슷하지만 실제로는 다른 아티스트의 공연이 섞여 있을 수 있습니다.
+
+{items_json}
+
+각 항목의 concert_title, venue, booking_url 등을 분석하여,
+실제로 아티스트 "{artist_name}"이(가) 출연하는 공연인지 판별하세요.
+
+판별 기준:
+- concert_title에 "{artist_name}"이 포함되어 있더라도, 다른 아티스트의 이름 일부로 포함된 것이면 제외
+  (예: 키워드가 "ALI"일 때 "ALICE" 또는 "CHARLIE"의 공연은 제외)
+- 페스티벌이나 합동 공연인 경우, "{artist_name}"이 출연진에 포함되어 있으면 포함
+- 동명이인(같은 이름의 다른 아티스트)이 아닌지 확인하세요
+
+결과를 다음 JSON 형식으로 출력하세요:
+{{
+  "verified_indices": [0, 2, 5],
+  "rejected": [
+    {{"index": 1, "reason": "다른 아티스트 'ALICE'의 공연"}},
+    {{"index": 3, "reason": "동명이인 — 래퍼 Ali가 아닌 가수 ALI의 공연"}}
+  ]
+}}
+
+JSON만 출력하세요."""
+
+            text = self._generate_with_retry(prompt, use_search=True)
+            result = self.parse_response_as_object(text)
+
+            verified_indices = set(result.get("verified_indices", []))
+            rejected = result.get("rejected", [])
+
+            if rejected:
+                for r in rejected:
+                    logger.info(
+                        f"  [아티스트 검증] 제외: index={r.get('index')} "
+                        f"reason={r.get('reason')}"
+                    )
+
+            if not verified_indices and not rejected:
+                # AI가 판별 결과를 제대로 반환하지 못한 경우 전체 유지
+                logger.warning("  [아티스트 검증] 판별 결과 없음 — 전체 유지")
+                return concerts
+
+            verified = [c for i, c in enumerate(concerts) if i in verified_indices]
+            logger.info(
+                f"  [아티스트 검증] {len(concerts)}건 중 {len(verified)}건 확인, "
+                f"{len(rejected)}건 제외"
+            )
+            return verified
+
+        except Exception as e:
+            logger.error(f"아티스트 검증 오류 '{artist_name}': {e}")
+            return concerts
+
+    def parse_response_as_object(self, text: str) -> Dict:
+        """AI 응답에서 JSON 객체 추출 (배열이 아닌 단일 객체)"""
+        text = text.strip()
+
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+
+        return json.loads(text)
 
     def parse_response(self, text: str) -> List[Dict]:
         """AI 응답에서 JSON 추출"""
